@@ -1,17 +1,14 @@
-from tree_sitter import Language, Parser
 import os
 
+from tree_sitter import Language, Parser
+
 # 定义函数 find_code_structure
-def find_code_structure(file_path, line_number, language):
+def find_code_structure(code, line_index, language):
     # 初始化Tree-sitter解析器并设置语言
     LANGUAGES = Language('./build/my-languages.so', language)
     
     parser = Parser()
     parser.set_language(LANGUAGES)
-
-    # 读取文件内容
-    with open(file_path, 'r') as file:
-        code = file.read()
 
     # 解析代码生成语法树
     tree = parser.parse(bytes(code, "utf8"))
@@ -85,7 +82,7 @@ def find_code_structure(file_path, line_number, language):
             current_structure = []
 
         # 检查行号是否在当前节点的范围内
-        if node.start_point[0] <= line_number <= node.end_point[0]:
+        if node.start_point[0] <= line_index <= node.end_point[0]:
             # 如果是类定义，将整个类定义内容添加到当前结构路径中
             if node.type == node_types['class']:
                 class_declaration = node_types["get_signature_fn"](node)
@@ -128,9 +125,121 @@ def find_code_structure(file_path, line_number, language):
     else:
         return None
 
-# 示例调用
-repo_path = "./transformers"
-file_path = "src/transformers/commands/run.py" # path within the repository
-line_number = 65
-language_name = "python"
-print(find_code_structure(os.path.join(repo_path, file_path), line_number, language_name))
+def detect_extension(file_names: list[str]):
+    # 使用os.path.basename获取文件名
+    for file_name in file_names:
+        filename = os.path.basename(file_name)
+        # 使用splitext分割文件名和后缀
+        file_name_elements = filename.split('.')
+        if len(file_name_elements) == 2:
+            extension = '.'+file_name_elements[-1]
+        else:
+            extension =  '.'+'.'.join(file_name_elements[-2:])
+        white_list = ['.go', '.js', '.java', '.py', '.ts', '.tsx']
+        if extension not in white_list:
+            return True
+    return False
+
+def check_language(file_path: str):
+    # 使用os.path.splitext获取文件名和后缀
+    _, extension = os.path.splitext(file_path)
+    if extension == '.go':
+        return 'go'
+    elif extension == '.js':
+        return 'javascript'
+    elif extension == '.java':
+        return 'java'
+    elif extension == '.py':
+        return 'python'
+    elif extension == '.ts' or extension == '.tsx':
+        return 'typescript'
+    else:
+        return None
+    
+def clone_repo(user_name: str, project_name: str):
+    """
+    Clone the repository to local
+    
+    Args:
+        user_name: str, the user name of the repository
+        project_name: str, the name of the repository
+        
+    Returns:
+        None
+    """
+    command = f"git clone https://github.com/{user_name}/{project_name}.git ./repos/{project_name}"
+    subprocess.run(command, shell=True)
+
+def convert_diff_section_to_snapshot(file_w_diff: str):
+    diff_content = file_w_diff.splitlines(keepends=True)
+    snapshot = []
+    consecutive_code = []
+    under_edit = False
+    edits = []
+    line_idx = 0
+    for line in diff_content:
+        if line.startswith(" ") and under_edit == False:
+            consecutive_code.append(line[1:])
+            line_idx += 1
+        elif line.startswith(" ") and under_edit == True:
+            under_edit = False
+            if edit["type"] == "replace" and edit["after"] == []:
+                edit["type"] = "delete"
+            snapshot.append(edit.copy())
+            consecutive_code.append(line[1:]) 
+            line_idx += 1
+        elif line.startswith("-") and under_edit == False:
+            under_edit = True
+            if consecutive_code != []:
+                snapshot.append(consecutive_code.copy())
+            consecutive_code = []
+            edit = {
+                "type": "replace",
+                "start_at_line": line_idx,
+                "before": [],
+                "after": []
+            }
+            edit["before"].append(line[1:])
+            line_idx += 1
+        elif line.startswith("+") and under_edit == False:
+            under_edit = True
+            if consecutive_code != []:
+                snapshot.append(consecutive_code.copy())
+            consecutive_code = []
+            edit = {
+                "type": "insert",
+                "start_at_line": line_idx-1,
+                "before": [],
+                "after": []
+            }
+            edit["after"].append(line[1:])
+        elif line.startswith("+") and under_edit == True:
+            edit["after"].append(line[1:])
+        elif line.startswith("-") and under_edit == True:
+            edit["before"].append(line[1:])
+            line_idx += 1
+    if under_edit == True:
+        if edit["type"] == "replace" and edit["after"] == []:
+            edit["type"] = "delete"
+        snapshot.append(edit.copy())
+    if under_edit == False:
+        snapshot.append(consecutive_code.copy())
+    
+    for window in snapshot:
+        if type(window) == dict:
+            edits.append(window)
+    return snapshot, edits
+
+def snapshot2file(snapshot: list, after_edit_hunk: list[dict]|dict = []):
+    if type(after_edit_hunk) == dict:
+        after_edit_hunk = [after_edit_hunk]
+    file_content = ""
+    for window in snapshot:
+        if type(window) == list:
+            file_content += "".join(window)
+        else:
+            if window in after_edit_hunk:
+                file_content += "".join(window["after"])
+            else:
+                file_content += "".join(window["before"])
+    return file_content
