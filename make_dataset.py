@@ -72,6 +72,20 @@ def extract_hunks(commit_url: str):
         # type 2: dict of edit, have key: "type", "before", "after"
         snapshot, _ = convert_diff_section_to_snapshot(after_at_symbol_content)
         
+        # count line index
+        parent_version_line_index = 0
+        child_version_line_index = 0
+        for window in snapshot:
+            if type(window) is list:
+                parent_version_line_index += len(window)
+                child_version_line_index += len(window)
+            else:
+                window["start_at_line_parent"] = parent_version_line_index
+                window["start_at_line_child"] = child_version_line_index
+                if window["before"] != []:
+                    parent_version_line_index += len(window["before"])
+                if window["after"] != []:
+                    child_version_line_index += len(window["after"])
         commit_snapshots[file_name] = snapshot
         
     # extract code logic path for each hunk
@@ -82,7 +96,7 @@ def extract_hunks(commit_url: str):
                 continue
             # only deal with edit hunks
 
-            line_index = window["start_at_line"]
+            line_index = window["start_at_line_parent"]
             language = check_language(file_path)
             if window["before"] == []:
                 file_content = snapshot2file(snapshot, window)

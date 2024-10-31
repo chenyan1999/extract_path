@@ -42,6 +42,10 @@ def find_code_structure(code, line_index, language):
                     declearation += child.text.decode("utf-8")
                 elif child.type == ":":
                     declearation += child.text.decode("utf-8")
+                elif child.type == "->":
+                    declearation += child.text.decode("utf-8")
+                elif child.type == "type":
+                    declearation += child.text.decode("utf-8")
             return declearation
         return None
     
@@ -106,24 +110,25 @@ def find_code_structure(code, line_index, language):
 
     # 获取行号的结构路径
     structure_path = traverse(root_node)
-    if structure_path:
-        formatted_path = ""
-        for level, node in enumerate(structure_path):
-            if level > 1:
-                indent = "    " * (level -1)  # 每层增加4个空格缩进
-            else:
-                indent = ""
-            if level > 0:
-                branch_symbol = "├-- " if level < len(structure_path) - 1 else "└-- "
-                for i in range(level - 1):
-                    branch_symbol = "│   " + branch_symbol
-            else:
-                branch_symbol = ""
+    return structure_path
+    # if structure_path:
+    #     formatted_path = ""
+    #     for level, node in enumerate(structure_path):
+    #         if level > 1:
+    #             indent = "    " * (level -1)  # 每层增加4个空格缩进
+    #         else:
+    #             indent = ""
+    #         if level > 0:
+    #             branch_symbol = "├-- " if level < len(structure_path) - 1 else "└-- "
+    #             for i in range(level - 1):
+    #                 branch_symbol = "│   " + branch_symbol
+    #         else:
+    #             branch_symbol = ""
             
-            formatted_path += f"{branch_symbol}{node}\n"
-        return formatted_path
-    else:
-        return None
+    #         formatted_path += f"{branch_symbol}{node}\n"
+    #     return formatted_path
+    # else:
+    #     return None
 
 def detect_extension(file_names: list[str]):
     # 使用os.path.basename获取文件名
@@ -176,18 +181,15 @@ def convert_diff_section_to_snapshot(file_w_diff: str):
     consecutive_code = []
     under_edit = False
     edits = []
-    line_idx = 0
     for line in diff_content:
         if line.startswith(" ") and under_edit == False:
             consecutive_code.append(line[1:])
-            line_idx += 1
         elif line.startswith(" ") and under_edit == True:
             under_edit = False
             if edit["type"] == "replace" and edit["after"] == []:
                 edit["type"] = "delete"
             snapshot.append(edit.copy())
             consecutive_code.append(line[1:]) 
-            line_idx += 1
         elif line.startswith("-") and under_edit == False:
             under_edit = True
             if consecutive_code != []:
@@ -195,12 +197,10 @@ def convert_diff_section_to_snapshot(file_w_diff: str):
             consecutive_code = []
             edit = {
                 "type": "replace",
-                "start_at_line": line_idx,
                 "before": [],
                 "after": []
             }
             edit["before"].append(line[1:])
-            line_idx += 1
         elif line.startswith("+") and under_edit == False:
             under_edit = True
             if consecutive_code != []:
@@ -208,7 +208,6 @@ def convert_diff_section_to_snapshot(file_w_diff: str):
             consecutive_code = []
             edit = {
                 "type": "insert",
-                "start_at_line": line_idx-1,
                 "before": [],
                 "after": []
             }
@@ -217,7 +216,6 @@ def convert_diff_section_to_snapshot(file_w_diff: str):
             edit["after"].append(line[1:])
         elif line.startswith("-") and under_edit == True:
             edit["before"].append(line[1:])
-            line_idx += 1
     if under_edit == True:
         if edit["type"] == "replace" and edit["after"] == []:
             edit["type"] = "delete"
